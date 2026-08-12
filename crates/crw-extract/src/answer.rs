@@ -311,10 +311,47 @@ fn select_relevant_passages(md: &str, query: &str, cap: usize) -> String {
     truncate_on_char_boundary(&out, cap).to_string() // hard-enforce the byte cap
 }
 
+/// Link-dense chunks are navigation / login shells ("Log in", "Sign up",
+/// breadcrumbs), not content — a social-media page's nav chunk can outrank
+/// its real passage on query-term overlap alone. 4+ markdown links in one
+/// ≤700-char chunk is a nav shell, not prose.
+fn is_link_dense_chunk(c: &str) -> bool {
+    c.matches("](").count() >= 4
+}
+
+/// Strip markdown image syntax (`![alt](url)`) from a passage. Image-heavy
+/// chunks still carry useful prose ("Learn how a Web Search API extends model
+/// knowledge, delivers real-time data… ![icon](…)"), so we clean instead of
+/// skipping. Only handles the inline `![…](…)` form; a chunk that is mostly
+/// images was already rejected or loses only its images.
+fn strip_markdown_images(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("![") {
+        let head = &rest[..start];
+        if let Some(close_bracket) = rest[start + 2..].find(']') {
+            let open_paren = start + 2 + close_bracket + 1;
+            if rest[open_paren..].starts_with('(')
+                && let Some(close_paren) = rest[open_paren + 1..].find(')')
+            {
+                out.push_str(head.trim_end());
+                out.push(' ');
+                rest = &rest[open_paren + 1 + close_paren + 1..];
+                continue;
+            }
+        }
+        out.push_str(&rest[start..]);
+        break;
+    }
+    out.push_str(rest);
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Extract a SINGLE query-relevant passage from a scraped page for the search
 /// `highlights` path (Firecrawl "Search Highlights" parity). Sentence-chunks
 /// the markdown and BM25-ranks against the query; returns the best chunk that
-/// clears the relevance floor (score > 0 = at least one query term overlaps).
+/// clears the relevance floor (score > 0 = at least one query term overlaps),
+/// excluding link-dense navigation shells and with markdown images stripped.
 ///
 /// `None` means "nothing worth replacing" — the caller keeps the SERP snippet,
 /// so a junk page can never degrade a result (monotone-safe). Pure BM25, no
@@ -334,9 +371,13 @@ pub fn best_highlight(md: &str, query: &str) -> Option<String> {
     let scored = filter::filter_chunks_scored(&chunks, query, &FilterMode::Bm25, chunks.len());
     scored
         .into_iter()
-        .filter(|sc| sc.score > 0.0)
+        .filter(|sc| sc.score > 0.0 && !is_link_dense_chunk(&sc.content))
         .max_by(|a, b| a.score.total_cmp(&b.score))
-        .map(|sc| sc.content.trim().to_string())
+        .map(|sc| {
+            let cleaned = strip_markdown_images(&sc.content);
+            cleaned.trim().to_string()
+        })
+        .filter(|s| !s.is_empty())
 }
 
 /// Hard server-side cap on the caller-supplied prompt addition. See
@@ -904,6 +945,46 @@ mod tests {
         let page = "Some ordinary sentence about computers here.";
         assert!(best_highlight(page, "   ").is_none());
         assert!(best_highlight("", "deepseek api").is_none());
+    }
+
+    #[test]
+    fn best_highlight_skips_link_dense_nav_shell() {
+        // A social page's login/nav chunk overlaps the query terms but is
+        // navigation, not content; the real passage must win instead.
+        let nav = "[Log in](/i/login) [Sign up](/i/signup) [Home](/h) [Explore](/x) [Settings](/s) web_search api";
+        let filler = (0..30)
+            .map(|i| format!("Context sentence {i} about general topics."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let content = "The web_search tool forces server-side search on the model.";
+        let page = format!("{nav}\n\n{filler}\n\n{content}");
+        let hl = best_highlight(&page, "web_search api tool").expect("content passage must win");
+        assert!(
+            hl.contains("web_search tool") && !hl.contains("Log in"),
+            "nav shell must not win, got: {hl}"
+        );
+    }
+
+    #[test]
+    fn best_highlight_link_dense_short_page_falls_back_to_none() {
+        // A short page whose every chunk is a nav shell has no highlight-worthy
+        // passage; None is the monotone-safe outcome (caller keeps SERP snippet).
+        let nav = "[Log in](/i/login) [Sign up](/i/signup) [Home](/h) [Explore](/x) [Settings](/s) web_search api";
+        assert!(best_highlight(&nav.repeat(3), "web_search api").is_none());
+    }
+
+    #[test]
+    fn best_highlight_strips_markdown_images() {
+        let page = format!(
+            "Learn how a Web Search API extends model knowledge, delivers real-time data. \
+             ![](https://storage.example.com/icon.png) More prose about the API here."
+        );
+        let hl = best_highlight(&page, "web search api").expect("passage found");
+        assert!(
+            !hl.contains("![") && !hl.contains("storage.example.com"),
+            "got: {hl}"
+        );
+        assert!(hl.contains("Web Search API"), "prose must survive cleaning");
     }
 
     // ---------------------------------------------------------------------

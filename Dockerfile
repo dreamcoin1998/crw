@@ -41,12 +41,27 @@ FROM --platform=$BUILDPLATFORM rust:1.97-bookworm@sha256:606f3248aa86ce49e0b98d9
 
 # Provided automatically by buildx: amd64 | arm64.
 ARG TARGETARCH
+ARG BUILDPLATFORM
 WORKDIR /app
 
 # Rust target + (arm64) cross linker toolchain; record the target triple.
 RUN set -eux; \
     case "$TARGETARCH" in \
-      amd64) RUST_TARGET=x86_64-unknown-linux-gnu ;; \
+      amd64) RUST_TARGET=x86_64-unknown-linux-gnu; \
+             # Building linux/amd64 FROM a non-amd64 host (e.g. an arm64 laptop
+             # via QEMU): the container reports x86_64 but its native gcc is the
+             # build-platform arch (rustc would pass -m64 to an arm64 cc and
+             # fail), and aws-lc-sys probes for the Debian cross-compiler name
+             # (x86_64-linux-gnu-gcc) and fails without it. Install the cross
+             # toolchain AND point the target linker at it (scoped to this
+             # target in $CARGO_HOME/config.toml) only on that path; native
+             # amd64 hosts keep using the image's plain gcc exactly as before.
+             if [ "$BUILDPLATFORM" != "linux/amd64" ]; then \
+               apt-get update; \
+               apt-get install -y --no-install-recommends gcc-x86-64-linux-gnu libc6-dev-amd64-cross; \
+               rm -rf /var/lib/apt/lists/*; \
+               printf '[target.x86_64-unknown-linux-gnu]\nlinker = "x86_64-linux-gnu-gcc"\n' > "$CARGO_HOME/config.toml"; \
+             fi ;; \
       arm64) RUST_TARGET=aarch64-unknown-linux-gnu; \
              apt-get update; \
              # crossbuild-essential-arm64 = the aarch64 gcc/g++ AND the target
