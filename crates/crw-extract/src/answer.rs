@@ -311,6 +311,34 @@ fn select_relevant_passages(md: &str, query: &str, cap: usize) -> String {
     truncate_on_char_boundary(&out, cap).to_string() // hard-enforce the byte cap
 }
 
+/// Extract a SINGLE query-relevant passage from a scraped page for the search
+/// `highlights` path (Firecrawl "Search Highlights" parity). Sentence-chunks
+/// the markdown and BM25-ranks against the query; returns the best chunk that
+/// clears the relevance floor (score > 0 = at least one query term overlaps).
+///
+/// `None` means "nothing worth replacing" — the caller keeps the SERP snippet,
+/// so a junk page can never degrade a result (monotone-safe). Pure BM25, no
+/// LLM; shares the sentence chunker with `select_relevant_passages`. The
+/// caller decides redundancy (e.g. "best passage is just the snippet itself")
+/// because only it holds the original snippet.
+pub fn best_highlight(md: &str, query: &str) -> Option<String> {
+    if query.trim().is_empty() {
+        return None;
+    }
+    let strategy = ChunkStrategy::Sentence {
+        max_chars: Some(700),
+        overlap_chars: None,
+        dedupe: Some(false),
+    };
+    let chunks = chunking::chunk_text(md, &strategy);
+    let scored = filter::filter_chunks_scored(&chunks, query, &FilterMode::Bm25, chunks.len());
+    scored
+        .into_iter()
+        .filter(|sc| sc.score > 0.0)
+        .max_by(|a, b| a.score.total_cmp(&b.score))
+        .map(|sc| sc.content.trim().to_string())
+}
+
 /// Hard server-side cap on the caller-supplied prompt addition. See
 /// `crate::summary::MAX_USER_PROMPT_CHARS` for rationale.
 pub const MAX_USER_PROMPT_CHARS: usize = 500;
@@ -846,6 +874,36 @@ mod tests {
         let long = "x".repeat(20_000);
         let out = select_relevant_passages(&long, "   ", 100);
         assert_eq!(out.len(), 100);
+    }
+
+    #[test]
+    fn best_highlight_surfaces_deep_relevant_passage() {
+        let filler = (0..80)
+            .map(|i| format!("Filler sentence {i} about various unrelated topics."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let answer = "The DeepSeek API accepts a web_search tool with a type field.";
+        let page = format!("Intro paragraph. {filler} {answer}");
+        let hl = best_highlight(&page, "deepseek api web_search tool type");
+        let hl = hl.expect("a query-overlapping passage must be found");
+        assert!(
+            hl.contains("web_search"),
+            "highlight must be the answer-bearing passage, got: {hl}"
+        );
+        assert!(hl.len() <= 700, "highlight must stay within the chunk cap");
+    }
+
+    #[test]
+    fn best_highlight_none_on_no_overlap() {
+        let page = "Completely unrelated boilerplate about widgets. ".repeat(20);
+        assert!(best_highlight(&page, "xyzzy plugh nonexistent").is_none());
+    }
+
+    #[test]
+    fn best_highlight_none_on_empty_query_or_empty_page() {
+        let page = "Some ordinary sentence about computers here.";
+        assert!(best_highlight(page, "   ").is_none());
+        assert!(best_highlight("", "deepseek api").is_none());
     }
 
     // ---------------------------------------------------------------------

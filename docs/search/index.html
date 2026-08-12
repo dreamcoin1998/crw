@@ -446,6 +446,12 @@ those four fields as siblings inside `data`. Portable clients should read
 <td>Scrape each result URL after search</td>
 </tr>
 <tr>
+<td><code>highlights</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Firecrawl &quot;Search Highlights&quot; parity: replace each scraped result&#39;s <code>snippet</code>/<code>description</code> with the query-relevant passage extracted from its own scraped markdown (pure BM25, no LLM). Requires <code>scrapeOptions</code>. Monotone-safe: a result with no markdown, no query-term overlap, or whose best passage is just the SERP snippet keeps its original snippet. Overrides <code>[search].highlights</code>.</td>
+</tr>
+<tr>
 <td><code>summarizeResults</code></td>
 <td>boolean</td>
 <td><code>false</code></td>

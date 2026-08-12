@@ -1873,6 +1873,14 @@ pub struct SearchRequest {
     /// only fires on list-intent queries).
     #[serde(default, alias = "answer_list_format")]
     pub answer_list_format: Option<bool>,
+    /// Firecrawl "Search Highlights" parity: when true (and `scrape_options`
+    /// is set), each scraped result's `snippet`/`description` is replaced by
+    /// the query-relevant passage extracted from its own scraped markdown
+    /// (pure BM25, no LLM). A result that carries no markdown, overlaps no
+    /// query term, or whose best passage is just the SERP snippet itself keeps
+    /// its original snippet — monotone-safe, never degrades a result.
+    #[serde(default)]
+    pub highlights: Option<bool>,
     /// Maximum number of bytes of each per-result markdown sent to the LLM
     /// when `summarize_results` is enabled. Defaults to
     /// `[extraction.llm].max_html_bytes` (100 KB). Clamped to a 200 KB

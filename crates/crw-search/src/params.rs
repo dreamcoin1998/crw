@@ -186,6 +186,7 @@ mod tests {
             multi_round: None,
             query_expand: None,
             answer_list_format: None,
+            highlights: None,
             max_content_chars: None,
             paid_rescue: false,
         }

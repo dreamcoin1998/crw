@@ -163,6 +163,7 @@ those four fields as siblings inside `data`. Portable clients should read
 | `sources` | string[] | -- | Result groups such as `"web"`, `"news"`, `"images"` |
 | `categories` | string[] | -- | Curated filters (`"github"`, `"research"`, `"pdf"`) **plus** any native search-backend category (`"science"`, `"it"`, `"news"`, `"files"`, …) passed straight through. Max 5 entries. See [Curated vs. passthrough categories](#curated-vs-passthrough-categories) |
 | `scrapeOptions` | object | -- | Scrape each result URL after search |
+| `highlights` | boolean | `false` | Firecrawl "Search Highlights" parity: replace each scraped result's `snippet`/`description` with the query-relevant passage extracted from its own scraped markdown (pure BM25, no LLM). Requires `scrapeOptions`. Monotone-safe: a result with no markdown, no query-term overlap, or whose best passage is just the SERP snippet keeps its original snippet. Overrides `[search].highlights`. |
 | `summarizeResults` | boolean | `false` | When `true`, each scraped result is summarized by the LLM and the digest appears in `result.summary`. Needs LLM config (per-request key or server). Fan-out is bounded by `[extraction.llm].max_concurrency`. |
 | `answer` | boolean | `false` | When `true`, after scraping the top results crw synthesizes a single answer over them. The answer + `citations` land on the response wrapper. |
 | `answerTopN` | number | `5` (max `10`) | Number of top-scoring results to feed into the answer pipeline |

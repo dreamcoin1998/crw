@@ -540,6 +540,17 @@ pub async fn search_inner(
         }
     }
 
+    // Firecrawl "Search Highlights" parity (gated, default off): replace each
+    // enriched result's SERP snippet with the query-relevant passage from its
+    // own scraped markdown. Runs AFTER enrichment so it sees the markdown;
+    // monotone-safe (see `apply_highlights`), so it can never degrade a result.
+    let wants_highlights = req.highlights.unwrap_or(state.config.search.highlights);
+    if wants_highlights && req.scrape_options.is_none() {
+        warnings.push("highlights requires scrapeOptions to populate markdown; skipped".into());
+    } else if wants_highlights {
+        apply_highlights(&mut data, &req.query);
+    }
+
     // `effective_llm` / `byok_llm` / `server_llm` were built up-front (above).
     let wants_summaries = req.summarize_results.unwrap_or(false);
     let wants_answer = req.answer.unwrap_or(false);
@@ -1353,6 +1364,45 @@ async fn fetch_expanded(
 /// for each result URL. Bounded by `[crawler].max_concurrency`. On per-URL
 /// failure the result is left without `markdown`/`html`/etc. fields — the
 /// search response still succeeds.
+/// True when a highlight adds nothing over the SERP snippet: the best passage
+/// is the snippet itself (or its exact expansion). Replacing `description`
+/// then yields no information gain for the model, so the snippet stays.
+fn is_redundant_snippet(desc: &str, highlight: &str) -> bool {
+    let d = desc.trim();
+    let h = highlight.trim();
+    !d.is_empty() && (d == h || h.contains(d))
+}
+
+/// Firecrawl "Search Highlights" parity: after scrape enrichment, replace each
+/// `web` result's `snippet`/`description` with the query-relevant passage
+/// extracted from its own scraped markdown (pure BM25 in `best_highlight`, no
+/// LLM). Monotone-safe: a result keeps its SERP snippet when the page had no
+/// markdown, nothing overlapped the query, or the best passage is just the
+/// snippet itself — a junk page can never degrade a result. Only touches
+/// `web` rows; `news`/`images` have no snippet contract here.
+fn apply_highlights(data: &mut SearchData, query: &str) {
+    let targets: &mut Vec<SearchResult> = match data {
+        SearchData::Flat(v) => v,
+        SearchData::Grouped(g) => match g.web.as_mut() {
+            Some(v) => v,
+            None => return,
+        },
+    };
+    for r in targets {
+        let Some(md) = r.markdown.as_deref() else {
+            continue;
+        };
+        let Some(hl) = answer::best_highlight(md, query) else {
+            continue;
+        };
+        if hl.is_empty() || is_redundant_snippet(&r.description, &hl) {
+            continue;
+        }
+        r.snippet.clone_from(&hl);
+        r.description = hl;
+    }
+}
+
 async fn enrich_with_scrape(
     data: &mut SearchData,
     opts: &SearchScrapeOptions,
@@ -1542,7 +1592,7 @@ fn apply_scrape_to_result(slot: &mut SearchResult, data: ScrapeData, formats: &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crw_core::types::SearchSource;
+    use crw_core::types::{GroupedSearchData, SearchSource};
 
     fn scrape_opts(timeout: Option<u64>) -> SearchScrapeOptions {
         SearchScrapeOptions {
@@ -1703,6 +1753,7 @@ mod tests {
             multi_round: None,
             query_expand: None,
             answer_list_format: None,
+            highlights: None,
             max_content_chars: None,
             paid_rescue: false,
         }
@@ -1899,5 +1950,90 @@ mod tests {
     #[test]
     fn _suppress_unused_search_source_warning() {
         let _ = SearchSource::Web;
+    }
+
+    #[test]
+    fn highlights_replace_snippet_with_relevant_passage() {
+        let filler = (0..60)
+            .map(|i| format!("Filler sentence {i} about unrelated widgets."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut r = bare_result("https://example.com/a");
+        r.description = "SERP says something generic here.".into();
+        r.markdown = Some(format!(
+            "Intro lede. {filler} The web_search tool forces server-side search."
+        ));
+        let mut data = SearchData::Flat(vec![r]);
+        apply_highlights(&mut data, "deepseek api web_search tool");
+        let out = match data {
+            SearchData::Flat(v) => v,
+            _ => panic!("flat"),
+        };
+        assert!(
+            out[0].snippet.contains("web_search"),
+            "snippet must carry the answer-bearing passage, got: {}",
+            out[0].snippet
+        );
+        assert_eq!(out[0].snippet, out[0].description);
+    }
+
+    #[test]
+    fn highlights_keep_snippet_on_no_overlap() {
+        let mut r = bare_result("https://example.com/a");
+        r.description = "Original SERP snippet.".into();
+        r.snippet = r.description.clone();
+        r.markdown = Some("Completely unrelated boilerplate about widgets.".repeat(30));
+        let mut data = SearchData::Flat(vec![r]);
+        apply_highlights(&mut data, "xyzzy plugh nonexistent");
+        let out = match data {
+            SearchData::Flat(v) => v,
+            _ => panic!("flat"),
+        };
+        assert_eq!(out[0].snippet, "Original SERP snippet.");
+        assert_eq!(out[0].description, "Original SERP snippet.");
+    }
+
+    #[test]
+    fn highlights_keep_snippet_when_best_passage_is_the_snippet() {
+        // The SERP snippet is often a verbatim cut of the page lede: replacing
+        // it with the same text (or its exact expansion) gains nothing.
+        let mut r = bare_result("https://example.com/a");
+        r.description = "web_search forces server-side search.".into();
+        r.snippet = r.description.clone();
+        r.markdown =
+            Some("Intro. web_search forces server-side search. More about the API here.".into());
+        let mut data = SearchData::Flat(vec![r]);
+        apply_highlights(&mut data, "web_search api");
+        let out = match data {
+            SearchData::Flat(v) => v,
+            _ => panic!("flat"),
+        };
+        assert_eq!(out[0].snippet, "web_search forces server-side search.");
+    }
+
+    #[test]
+    fn highlights_skip_results_without_markdown_and_handle_grouped() {
+        let mut a = bare_result("https://example.com/a");
+        a.description = "kept".into();
+        a.snippet = a.description.clone();
+        let mut b = bare_result("https://example.com/b");
+        b.description = "SERP generic.".into();
+        b.snippet = b.description.clone();
+        b.markdown = Some("The web_search tool forces server-side search here.".into());
+        let mut data = SearchData::Grouped(GroupedSearchData {
+            web: Some(vec![a, b]),
+            ..Default::default()
+        });
+        apply_highlights(&mut data, "web_search tool");
+        let g = match data {
+            SearchData::Grouped(g) => g,
+            _ => panic!("grouped"),
+        };
+        let web = g.web.expect("web rows present");
+        assert_eq!(web[0].snippet, "kept", "no markdown -> snippet untouched");
+        assert!(
+            web[1].snippet.contains("web_search"),
+            "grouped web rows must be highlighted too"
+        );
     }
 }

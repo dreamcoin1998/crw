@@ -466,6 +466,16 @@ pub struct SearchConfig {
     /// against the answer-accuracy benchmark before flip.
     #[serde(default)]
     pub answer_list_format: bool,
+    /// Firecrawl "Search Highlights" parity for plain search (gated). With this
+    /// on, `scrapeOptions`-enriched results have their SERP `snippet`/`description`
+    /// replaced by the query-relevant passage extracted from the page's own
+    /// scraped markdown (pure BM25, no LLM — reuses the sentence chunker +
+    /// BM25 ranker of the answer path). Monotone-safe: a result with no markdown,
+    /// no query-term overlap, or whose best passage is just the SERP snippet
+    /// itself keeps its original snippet, so a junk page can never degrade the
+    /// result. Default false; off = SERP snippet passthrough (legacy).
+    #[serde(default)]
+    pub highlights: bool,
 }
 
 impl SearchConfig {
@@ -510,6 +520,7 @@ impl Default for SearchConfig {
             snippet_fallback: false,
             rerank_relevance: false,
             answer_list_format: false,
+            highlights: false,
         }
     }
 }

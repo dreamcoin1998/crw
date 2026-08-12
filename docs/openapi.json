@@ -966,6 +966,11 @@
           },
           "scrapeOptions": {
             "$ref": "#/components/schemas/SearchScrapeOptions"
+          },
+          "highlights": {
+            "type": "boolean",
+            "default": false,
+            "description": "Replace each scraped result's snippet/description with the query-relevant passage from its own scraped markdown (pure BM25, no LLM). Requires scrapeOptions; a result with no markdown, no query-term overlap, or whose best passage is just the SERP snippet keeps its original snippet."
           }
         }
       },
