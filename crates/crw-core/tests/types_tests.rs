@@ -27,6 +27,16 @@ fn output_format_serde_roundtrip() {
 }
 
 #[test]
+fn search_mode_serde_roundtrip() {
+    let technical: SearchRequest =
+        serde_json::from_str(r#"{"query":"React 19 docs","searchMode":"technical"}"#).unwrap();
+    assert_eq!(technical.search_mode, Some(SearchMode::Technical));
+
+    let standard: SearchRequest = serde_json::from_str(r#"{"query":"React docs"}"#).unwrap();
+    assert_eq!(standard.search_mode, None);
+}
+
+#[test]
 fn scrape_request_default_formats() {
     let req: ScrapeRequest = serde_json::from_str(r#"{"url":"https://example.com"}"#).unwrap();
     assert_eq!(req.url, "https://example.com");

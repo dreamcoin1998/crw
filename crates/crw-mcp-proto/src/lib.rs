@@ -410,7 +410,7 @@ pub fn tool_definitions(proxy_mode: bool) -> Value {
     tools.push(json!({
         "name": "crw_search",
         "title": "Web search",
-        "description": "Search the web for current information, news, facts, or docs. Use whenever the answer may depend on up-to-date or external information. Returns ranked results (url/title/description/snippet); optionally scrape each result inline.",
+        "description": "Search current web information or docs. Returns ranked results; can scrape each result inline.",
         "annotations": {
             "readOnlyHint": true,
             "destructiveHint": false,
@@ -436,6 +436,11 @@ pub fn tool_definitions(proxy_mode: bool) -> Value {
                     "type": "string",
                     "enum": ["qdr:h", "qdr:d", "qdr:w", "qdr:m", "qdr:y"],
                     "description": "Time filter: past hour/day/week/month/year"
+                },
+                "searchMode": {
+                    "type": "string",
+                    "enum": ["standard", "technical"],
+                    "description": "Technical mode prioritizes matching versions and official docs"
                 },
                 "sources": {
                     "type": "array",

@@ -98,6 +98,7 @@ export interface SearchOptions {
   limit?: number;
   lang?: string;
   tbs?: string;
+  searchMode?: "standard" | "technical";
   sources?: string[];
   categories?: string[];
   scrapeOptions?: Json;

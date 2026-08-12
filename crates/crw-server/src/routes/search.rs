@@ -6,15 +6,15 @@ use crw_core::Deadline;
 use crw_core::config::LlmConfig;
 use crw_core::error::CrwError;
 use crw_core::types::{
-    ApiResponse, LlmUsage, OutputFormat, ScrapeData, ScrapeRequest, SearchData, SearchRequest,
-    SearchResponse, SearchResponseData, SearchResult, SearchScrapeOptions,
+    ApiResponse, LlmUsage, OutputFormat, ScrapeData, ScrapeRequest, SearchData, SearchMode,
+    SearchRequest, SearchResponse, SearchResponseData, SearchResult, SearchScrapeOptions,
 };
 use crw_crawl::single::scrape_url;
 use crw_extract::answer;
 use crw_extract::summary;
 use crw_search::{
     SearchError, SearxngClient, SearxngParams, SearxngResponse, map_to_searxng_params,
-    transform_flat, transform_flat_reranked, transform_grouped,
+    transform_flat, transform_flat_reranked, transform_flat_technical, transform_grouped,
 };
 use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
@@ -405,6 +405,8 @@ pub async fn search_inner(
     let mut data = if has_sources {
         let sources = req.sources.clone().unwrap_or_default();
         SearchData::Grouped(transform_grouped(&response, &sources, limit))
+    } else if req.search_mode == Some(SearchMode::Technical) {
+        SearchData::Flat(transform_flat_technical(&response, &req.query, limit))
     } else if llm_path && state.config.search.rerank_enabled {
         SearchData::Flat(transform_flat_reranked(
             &response,
@@ -481,12 +483,16 @@ pub async fn search_inner(
                     }
                 }
                 response.number_of_results = response.results.len() as u64;
-                data = SearchData::Flat(transform_flat_reranked(
-                    &response,
-                    &req.query,
-                    limit,
-                    state.config.search.rerank_relevance,
-                ));
+                data = SearchData::Flat(if req.search_mode == Some(SearchMode::Technical) {
+                    transform_flat_technical(&response, &req.query, limit)
+                } else {
+                    transform_flat_reranked(
+                        &response,
+                        &req.query,
+                        limit,
+                        state.config.search.rerank_relevance,
+                    )
+                });
             }
         }
     }
@@ -1195,6 +1201,16 @@ fn validate_request(req: &SearchRequest, max_limit: u32) -> Result<(), CrwError>
             "limit must be between 1 and {max_limit} (got {l})"
         )));
     }
+    if req.search_mode == Some(SearchMode::Technical)
+        && req
+            .sources
+            .as_ref()
+            .is_some_and(|sources| !sources.is_empty())
+    {
+        return Err(CrwError::InvalidRequest(
+            "searchMode=technical requires flat results; omit sources".into(),
+        ));
+    }
     if let Some(l) = req.lang.as_deref().map(str::trim)
         && !l.is_empty()
         && (l.chars().count() > MAX_LANG_CHARS || !is_valid_lang(l))
@@ -1668,6 +1684,7 @@ mod tests {
             limit: None,
             lang: None,
             tbs: None,
+            search_mode: None,
             sources: None,
             categories: None,
             scrape_options: None,
@@ -1714,6 +1731,18 @@ mod tests {
         assert!(matches!(
             validate_request(&req(""), 20),
             Err(CrwError::InvalidRequest(_))
+        ));
+    }
+
+    #[test]
+    fn technical_mode_rejects_grouped_sources() {
+        let mut request = req("React 19 docs");
+        request.search_mode = Some(SearchMode::Technical);
+        request.sources = Some(vec![SearchSource::Web]);
+        assert!(matches!(
+            validate_request(&request, 20),
+            Err(CrwError::InvalidRequest(message))
+                if message.contains("requires flat results")
         ));
     }
 

@@ -167,6 +167,7 @@ mod tests {
             limit: None,
             lang: None,
             tbs: None,
+            search_mode: None,
             sources: None,
             categories: None,
             scrape_options: None,

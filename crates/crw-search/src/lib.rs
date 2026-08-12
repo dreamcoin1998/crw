@@ -16,6 +16,7 @@ pub mod params;
 pub mod rerank;
 pub mod research;
 pub mod structured;
+pub mod technical;
 pub mod transform;
 pub mod wikidata;
 
@@ -23,4 +24,6 @@ pub use client::{PAID_RESCUE_HEADER, SearchError, SearxngClient, SearxngResponse
 pub use params::{SearxngParams, clean_query, map_to_searxng_params};
 pub use rerank::{rerank, rerank_relevance};
 pub use structured::{StructuredFact, structured_facts};
-pub use transform::{transform_flat, transform_flat_reranked, transform_grouped};
+pub use transform::{
+    transform_flat, transform_flat_reranked, transform_flat_technical, transform_grouped,
+};

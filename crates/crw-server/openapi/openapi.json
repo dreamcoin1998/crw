@@ -938,6 +938,15 @@
               "qdr:y"
             ]
           },
+          "searchMode": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "technical"
+            ],
+            "default": "standard",
+            "description": "Use technical to prioritize matching-version official documentation. Requires sources to be omitted."
+          },
           "sources": {
             "type": "array",
             "items": {

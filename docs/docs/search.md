@@ -159,6 +159,7 @@ those four fields as siblings inside `data`. Portable clients should read
 | `limit` | number | `5` | Maximum results per source (max `20`) |
 | `lang` | string | -- | Result language hint such as `"en"` or `"tr"` |
 | `tbs` | string | -- | Recency filter: `qdr:h`, `qdr:d`, `qdr:w`, `qdr:m`, `qdr:y` |
+| `searchMode` | string | `standard` | Set to `technical` to prioritize matching-version official documentation. Requires flat results (`sources` omitted). |
 | `sources` | string[] | -- | Result groups such as `"web"`, `"news"`, `"images"` |
 | `categories` | string[] | -- | Curated filters (`"github"`, `"research"`, `"pdf"`) **plus** any native search-backend category (`"science"`, `"it"`, `"news"`, `"files"`, …) passed straight through. Max 5 entries. See [Curated vs. passthrough categories](#curated-vs-passthrough-categories) |
 | `scrapeOptions` | object | -- | Scrape each result URL after search |

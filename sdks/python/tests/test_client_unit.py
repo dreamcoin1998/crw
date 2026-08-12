@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import get_type_hints
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -179,6 +180,10 @@ class TestMap:
 
 @pytest.mark.unit
 class TestSearch:
+    def test_search_mode_type_is_restricted(self) -> None:
+        annotation = get_type_hints(CrwClient.search)["search_mode"]
+        assert "Literal['standard', 'technical']" in str(annotation)
+
     def test_search_subprocess_uses_tool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # search now works in local mode too (routes to the crw_search MCP
         # tool); the engine itself returns a clear error if SearXNG is unset.
@@ -209,6 +214,17 @@ class TestSearch:
             raw=True,
         )
         assert list(result) == mock_response
+
+    def test_search_forwards_technical_mode(self) -> None:
+        client = CrwClient(api_url="https://fastcrw.com/api", api_key="crw_live_test")
+        with patch.object(
+            client,
+            "_http_request",
+            return_value={"success": True, "data": []},
+        ) as mock_request:
+            client.search("React 19 documentation", search_mode="technical")
+
+        assert mock_request.call_args.args[2]["searchMode"] == "technical"
 
 
 # ---------------------------------------------------------------------------

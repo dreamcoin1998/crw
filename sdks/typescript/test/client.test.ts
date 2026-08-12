@@ -111,6 +111,13 @@ test("search result carries typed items and answer siblings", async () => {
   assert.equal((results as { answer?: string }).answer, "42");
 });
 
+test("search forwards technical mode", async () => {
+  const calls = mockFetch({ success: true, data: [] });
+  const c = new CrwClient({ apiKey: "crw_live_test" });
+  await c.search("React 19 documentation", { searchMode: "technical" });
+  assert.equal(JSON.parse(String(calls[0].init?.body)).searchMode, "technical");
+});
+
 test("capabilities result is a typed feature payload", async () => {
   mockFetch({
     version: "0.27.1",

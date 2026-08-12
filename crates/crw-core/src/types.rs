@@ -1742,6 +1742,13 @@ impl SearchTimeFilter {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchMode {
+    Standard,
+    Technical,
+}
+
 /// `scrapeOptions` sub-object — a narrow projection of `ScrapeRequest` that
 /// we accept on every result from a search. Only the fields the SaaS exposes.
 ///
@@ -1784,6 +1791,10 @@ pub struct SearchRequest {
     /// Google-style time filter (`qdr:h|d|w|m|y`).
     #[serde(default)]
     pub tbs: Option<SearchTimeFilter>,
+    /// Optional ranking mode. `technical` prioritizes matching-version official
+    /// documentation without changing the default SearXNG score ordering.
+    #[serde(default, alias = "search_mode")]
+    pub search_mode: Option<SearchMode>,
     /// When set, results are grouped under `web`/`news`/`images` keys.
     /// When unset, a flat array is returned.
     #[serde(default)]

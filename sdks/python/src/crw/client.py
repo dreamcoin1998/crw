@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 import time
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote, urlencode
 
 from crw._binary import ensure_binary
@@ -273,6 +273,7 @@ class CrwClient:
         limit: int = 5,
         lang: str | None = None,
         tbs: str | None = None,
+        search_mode: Literal["standard", "technical"] | None = None,
         sources: list[str] | None = None,
         categories: list[str] | None = None,
         scrape_options: dict[str, Any] | None = None,
@@ -290,6 +291,7 @@ class CrwClient:
             limit: Maximum number of results (1-20, default 5).
             lang: Language code for results (e.g. ``"en"``, ``"tr"``).
             tbs: Time filter (``"qdr:h"``, ``"qdr:d"``, ``"qdr:w"``, ``"qdr:m"``, ``"qdr:y"``).
+            search_mode: ``"technical"`` prioritizes matching versions and official docs.
             sources: Result types (``"web"``, ``"news"``, ``"images"``). Groups response when set.
             categories: Category filters (``"github"``, ``"research"``, ``"pdf"``).
             scrape_options: Scrape each result URL, e.g. ``{"formats": ["markdown"]}``.
@@ -302,6 +304,8 @@ class CrwClient:
             args["lang"] = lang
         if tbs:
             args["tbs"] = tbs
+        if search_mode:
+            args["searchMode"] = search_mode
         if sources:
             args["sources"] = sources
         if categories:

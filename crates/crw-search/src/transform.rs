@@ -156,6 +156,28 @@ pub fn transform_flat_reranked(
         .collect()
 }
 
+pub fn transform_flat_technical(
+    response: &SearxngResponse,
+    query: &str,
+    limit: u32,
+) -> Vec<SearchResult> {
+    let results: Vec<SearxngResult> = response
+        .results
+        .iter()
+        .filter(|r| is_well_formed(r))
+        .take(MAX_UPSTREAM_ROWS)
+        .cloned()
+        .collect();
+    let mut seen = HashSet::new();
+    crate::technical::rerank_technical(&results, query)
+        .into_iter()
+        .filter(|row| seen.insert(url_of(row).to_string()))
+        .take(limit as usize)
+        .enumerate()
+        .map(|(i, row)| to_search_result(row, (i + 1) as u32))
+        .collect()
+}
+
 /// Grouped output: filter by `sources`, then per-bucket sort/dedupe/slice.
 /// Limit applies **per source**, not in total — matches SaaS semantics.
 pub fn transform_grouped(
@@ -336,6 +358,30 @@ mod tests {
             2,
         );
         assert_eq!(res.len(), 2);
+    }
+
+    #[test]
+    fn technical_flat_reranks_before_limiting_and_dedupes_urls() {
+        let old = SearxngResult {
+            title: Some("React 18 guide".into()),
+            ..r("https://blog.test/react-18", 10.0, "old")
+        };
+        let current = SearxngResult {
+            title: Some("React 19 reference".into()),
+            ..r("https://react.dev/versions/19", 0.1, "current")
+        };
+        let duplicate = SearxngResult {
+            title: Some("React 19 duplicate".into()),
+            ..r("https://react.dev/versions/19", 0.05, "duplicate")
+        };
+        let result = transform_flat_technical(
+            &resp(vec![old, current, duplicate]),
+            "React 19 documentation",
+            5,
+        );
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].url, "https://react.dev/versions/19");
+        assert_eq!(result[0].position, 1);
     }
 
     #[test]
