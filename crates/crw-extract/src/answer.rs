@@ -311,12 +311,36 @@ fn select_relevant_passages(md: &str, query: &str, cap: usize) -> String {
     truncate_on_char_boundary(&out, cap).to_string() // hard-enforce the byte cap
 }
 
+/// Total chars inside `](...)` URL spans (excludes the link text).
+fn link_url_chars(c: &str) -> usize {
+    let mut total = 0;
+    let mut rest = c;
+    while let Some(i) = rest.find("](") {
+        let after = &rest[i + 2..];
+        match after.find(')') {
+            Some(end) => {
+                total += end;
+                rest = &after[end + 1..];
+            }
+            None => break,
+        }
+    }
+    total
+}
+
 /// Link-dense chunks are navigation / login shells ("Log in", "Sign up",
-/// breadcrumbs), not content — a social-media page's nav chunk can outrank
-/// its real passage on query-term overlap alone. 4+ markdown links in one
-/// ≤700-char chunk is a nav shell, not prose.
+/// breadcrumbs), not content — a social page's nav chunk (long tracking URLs
+/// packed into ≤700 chars) can outrank its real passage on query-term overlap
+/// alone. Long chunks may legitimately cite a link or two in 700 chars, so
+/// short chunks trip on 3+ links and any chunk trips when URL text alone is
+/// >30% of it (a nav/gallery shell, never prose).
 fn is_link_dense_chunk(c: &str) -> bool {
-    c.matches("](").count() >= 4
+    let links = c.matches("](").count();
+    if links < 2 {
+        return false;
+    }
+    let len = c.chars().count().max(1);
+    links >= 4 || (link_url_chars(c) * 100 / len) > 30
 }
 
 /// Strip markdown image syntax (`![alt](url)`) from a passage. Image-heavy
@@ -971,6 +995,25 @@ mod tests {
         // passage; None is the monotone-safe outcome (caller keeps SERP snippet).
         let nav = "[Log in](/i/login) [Sign up](/i/signup) [Home](/h) [Explore](/x) [Settings](/s) web_search api";
         assert!(best_highlight(&nav.repeat(3), "web_search api").is_none());
+    }
+
+    #[test]
+    fn best_highlight_skips_x_post_nav_shell() {
+        // Real X/Twitter shell observed in prod: [](/) + Log in + Sign up with
+        // long tracking URLs packed into the chunk, outranking the post body on
+        // term overlap alone. The URL text is >30% of the chunk -> shell.
+        let nav = "# Kai (@hqmank) on X [](/) ## Post [Log in](/i/jf/onboarding/web?mode=login&redirect_after_login=%2Fhqmank%2Fstatus%2F2084985778174849165) [Sign up](/i/jf/onboarding/web?mode=signup&redirect_after_login=the-same-long-tracking-path)";
+        let filler = (0..40)
+            .map(|i| format!("Context sentence {i} about general topics."))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let body = "The model ran a server-side web_search tool call with status updates.";
+        let page = format!("{nav}\n\n{filler}\n\n{body}");
+        let hl = best_highlight(&page, "web_search tool call").expect("post body must win");
+        assert!(
+            hl.contains("server-side web_search tool call") && !hl.contains("Log in"),
+            "nav shell must not win, got: {hl}"
+        );
     }
 
     #[test]
