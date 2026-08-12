@@ -74,3 +74,4 @@ futures-plans.md
 
 # bench python venv (local; recreate from bench/requirements.txt)
 bench/.venv/
+.codegraph/
