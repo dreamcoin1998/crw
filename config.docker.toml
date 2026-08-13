@@ -138,6 +138,12 @@ query_expand_variants = 3
 # 1:1 to correct. SimpleQA 76->92, TruthfulQA 72->80. Confirmed across two runs.
 # Baked on (code default false/gated) so it survives container/compose churn.
 answer_calibrated = true
+# Firecrawl "Search Highlights" parity: replace each scraped result's
+# snippet/description with the query-relevant passage from its own markdown
+# (pure BM25, no LLM — monotone-safe, falls back to the SERP snippet). Baked
+# on here (code default false/gated) so a plain search + scrapeOptions call
+# already carries the evidence without an explicit `highlights: true`.
+highlights = true
 
 # /map URL filter — defaults on. Set `drop_action_urls = false` to revert
 # to legacy behaviour (action URLs surface in results).
